@@ -98,6 +98,36 @@ export function createOverlay(client, options = {}) {
   const elapsedSpan = root.querySelector('#harness-elapsed');
   let isOpen = false;
   let inputMode = 'feedback'; // 'feedback' or 'revise'
+  const HISTORY_KEY = '__dev_harness_chat__';
+
+  function saveHistory() {
+    try {
+      const entries = [];
+      messages.querySelectorAll('.harness-msg').forEach((el) => {
+        const type = (el.className.match(/harness-msg-(\S+)$/) || [])[1] || 'system';
+        if (type !== 'system') entries.push({ text: el.textContent, type });
+      });
+      // Keep last 50 messages to avoid bloating sessionStorage
+      sessionStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(-50)));
+    } catch (_) {}
+  }
+
+  function restoreHistory() {
+    try {
+      const raw = sessionStorage.getItem(HISTORY_KEY);
+      if (!raw) return;
+      const entries = JSON.parse(raw);
+      for (const { text, type } of entries) {
+        const el = document.createElement('div');
+        el.className = `harness-msg harness-msg-${type}`;
+        el.textContent = text;
+        messages.appendChild(el);
+      }
+      messages.scrollTop = messages.scrollHeight;
+    } catch (_) {}
+  }
+
+  restoreHistory();
 
   function toggle() {
     isOpen = !isOpen;
@@ -110,6 +140,7 @@ export function createOverlay(client, options = {}) {
     el.className = `harness-msg harness-msg-${type}`;
     el.textContent = text;
     messages.appendChild(el);
+    saveHistory();
     messages.scrollTop = messages.scrollHeight;
   }
 

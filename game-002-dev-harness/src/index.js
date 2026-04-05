@@ -5,7 +5,8 @@ import { snapshotState, restoreState } from './state-snap.js';
 export { restoreState } from './state-snap.js';
 
 export function initHarness(phaserGame, options = {}) {
-  const url = options.url || 'ws://localhost:3001';
+  const harnessPort = window.__HARNESS_PORT__ || 3001;
+  const url = options.url || `ws://localhost:${harnessPort}`;
   const client = createClient(url);
 
   const overlay = createOverlay(client, {

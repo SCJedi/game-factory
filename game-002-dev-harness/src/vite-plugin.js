@@ -264,6 +264,15 @@ export function devHarness(options = {}) {
       projectRoot = config.root;
     },
 
+    transformIndexHtml() {
+      return [{
+        tag: 'script',
+        attrs: { type: 'module' },
+        children: `window.__HARNESS_PORT__ = ${port};`,
+        injectTo: 'head-prepend',
+      }];
+    },
+
     configureServer(server) {
       wss = new WebSocketServer({ port });
 
