@@ -1,0 +1,8 @@
+{
+  "planning_mode": "quick",
+  "input_method": "both",
+  "show_wizard": true,
+  "template": "phaser-vite",
+  "ship_target": "itch.io",
+  "prototype_art": "placeholder-only"
+}

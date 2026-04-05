@@ -1,0 +1,18 @@
+{
+  "name": "game-dev-harness",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "In-game feedback overlay for Phaser 3 + Vite games. Chat overlay, game state capture, WebSocket bridge to AI handlers.",
+  "keywords": ["phaser", "vite", "gamedev", "dev-tools", "overlay", "feedback"],
+  "exports": {
+    ".": "./src/vite-plugin.js",
+    "./client": "./src/index.js"
+  },
+  "bin": {
+    "harness": "./src/cli.js"
+  },
+  "dependencies": {
+    "ws": "^8.0.0"
+  },
+  "license": "MIT"
+}

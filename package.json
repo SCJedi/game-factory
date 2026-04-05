@@ -1,0 +1,13 @@
+{
+  "name": "game-factory",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CLI pipeline for building 2D browser games with AI-assisted live feedback.",
+  "keywords": ["phaser", "gamedev", "vite", "ai", "claude"],
+  "scripts": {
+    "new-game": "node factory.js new",
+    "list": "node factory.js list",
+    "dev": "node factory.js dev"
+  },
+  "license": "MIT"
+}

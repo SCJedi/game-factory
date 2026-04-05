@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.vite/
+
+# Harness runtime files (keep the directory, ignore contents)
+**/.harness/feedback.jsonl
+**/.harness/responses.jsonl
+**/.harness/.read-cursor
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Lock files for individual games (root lock is fine)
+game-*/package-lock.json
