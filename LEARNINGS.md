@@ -36,6 +36,14 @@ Nothing yet. Game 001 used only procedural drawing (rectangles, arcs, solid fill
 - Knob values persist in sessionStorage so they survive hot reloads. On startup, saved values are applied via callbacks before the first frame.
 - Cap at 10 knobs per game. More than that means the game needs config categories, not more sliders.
 
+## Reuse and Extraction
+
+- Every system you build (economy, dialogue, scoring, physics tuning) is a candidate for extraction into shared-assets/ or templates/. Break it into modular parts that drop into other games.
+- Extraction trigger: "Is this the second time I've built this?" If yes, pull it out. If no, build it inline and move on.
+- Don't build dev tooling or abstractions for a game that hasn't proven its core mechanic yet. A game at the "is this fun?" stage doesn't need a level editor.
+- Automate cheapest-first. Cost ladder: simple code (free) -> templates/scaffolds (low) -> AI-generated (medium) -> human dev time (high). Only escalate when the cheaper tier can't do the job.
+- Track what you've built in HISTORY.md with enough detail that future games can grep for reusable parts.
+
 ## Anti-Patterns
 
 - Do not add visual polish during the prototype phase. Boxes and arcs are enough to validate a core mechanic.
