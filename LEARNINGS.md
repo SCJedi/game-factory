@@ -30,6 +30,12 @@ Nothing yet. Game 001 used only procedural drawing (rectangles, arcs, solid fill
 - The overlay is an HTML/CSS DOM layer, not rendered in the Phaser canvas. Toggled with backtick.
 - Keyboard input in the overlay must stopPropagation so the game does not receive keypresses while typing.
 
+## Dev Knobs
+
+- For numeric tuning (speed, gravity, spawn rate, etc.), direct slider controls in the overlay are far more efficient than asking the AI to recode values. A registerKnob API lets games expose tunable parameters, and the player adjusts them in real time without any reload. This is the highest-ROI dev harness feature after the chat itself.
+- Knob values persist in sessionStorage so they survive hot reloads. On startup, saved values are applied via callbacks before the first frame.
+- Cap at 10 knobs per game. More than that means the game needs config categories, not more sliders.
+
 ## Anti-Patterns
 
 - Do not add visual polish during the prototype phase. Boxes and arcs are enough to validate a core mechanic.

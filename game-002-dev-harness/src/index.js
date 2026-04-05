@@ -17,6 +17,9 @@ export function initHarness(phaserGame, options = {}) {
 
   let stateGetter = null;
   let currentScene = null;
+  const knobs = [];
+  const MAX_KNOBS = 10;
+  const KNOBS_KEY = '__dev_harness_knobs__';
 
   // Track the active scene
   if (phaserGame && phaserGame.scene) {
@@ -73,6 +76,28 @@ export function initHarness(phaserGame, options = {}) {
     client.send('revise', { message });
   }
 
+  function registerKnob(name, min, max, currentValue, callback, step) {
+    if (knobs.length >= MAX_KNOBS) {
+      console.warn('[dev-harness] Max knobs (' + MAX_KNOBS + ') reached, ignoring:', name);
+      return;
+    }
+    // Check for saved value from a previous session
+    let value = currentValue;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(KNOBS_KEY) || '{}');
+      if (saved[name] !== undefined) {
+        value = Number(saved[name]);
+        // Clamp to valid range
+        value = Math.min(max, Math.max(min, value));
+        // Apply the saved value immediately
+        if (callback) callback(value);
+      }
+    } catch (_) {}
+
+    knobs.push({ name, min, max, value, callback, step: step || 1 });
+    overlay.renderKnobs(knobs);
+  }
+
   function on(event, callback) {
     client.on(event, callback);
   }
@@ -83,6 +108,7 @@ export function initHarness(phaserGame, options = {}) {
 
   return {
     registerState,
+    registerKnob,
     restoreState,
     send: sendFeedback,
     on,
