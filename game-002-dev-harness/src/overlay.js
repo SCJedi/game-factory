@@ -34,6 +34,15 @@ const STYLES = `
 .harness-msg-done::before { content: '< '; color: #666; }
 .harness-msg-error { color: #ef5350; }
 .harness-msg-error::before { content: '! '; color: #ef5350; }
+.harness-msg-plan { color: #b0bec5; white-space: pre-wrap; border-left: 2px solid #546e7a; padding-left: 8px; margin: 8px 0; }
+.harness-msg-progress { color: #888; font-size: 11px; }
+#harness-actions { display: none; padding: 8px 10px; border-top: 1px solid #333; flex-shrink: 0; gap: 8px; align-items: center; }
+#harness-actions.active { display: flex; }
+.harness-btn { background: #333; border: 1px solid #555; color: #c8c8c8; padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 12px; }
+.harness-btn:hover { background: #444; }
+.harness-btn-confirm { border-color: #4caf50; color: #4caf50; }
+.harness-btn-confirm:hover { background: #1b3a1b; }
+#harness-elapsed { font-size: 10px; color: #555; padding: 0 10px; }
 #harness-input-row { display: flex; border-top: 1px solid #333; flex-shrink: 0; }
 #harness-input {
   flex: 1; background: rgba(0, 0, 0, 0.5); border: none; outline: none;
@@ -64,6 +73,11 @@ export function createOverlay(client, options = {}) {
         <span id="harness-reload-indicator">RELOADING</span>
       </div>
       <div id="harness-messages"></div>
+      <div id="harness-actions">
+        <button class="harness-btn harness-btn-confirm" id="harness-confirm">Confirm</button>
+        <button class="harness-btn" id="harness-revise">Revise</button>
+        <span id="harness-elapsed"></span>
+      </div>
       <div id="harness-input-row">
         <input id="harness-input" type="text" placeholder="feedback..." autocomplete="off" />
       </div>
@@ -78,7 +92,12 @@ export function createOverlay(client, options = {}) {
   const messages = root.querySelector('#harness-messages');
   const input = root.querySelector('#harness-input');
   const reloadIndicator = root.querySelector('#harness-reload-indicator');
+  const actionsRow = root.querySelector('#harness-actions');
+  const confirmBtn = root.querySelector('#harness-confirm');
+  const reviseBtn = root.querySelector('#harness-revise');
+  const elapsedSpan = root.querySelector('#harness-elapsed');
   let isOpen = false;
+  let inputMode = 'feedback'; // 'feedback' or 'revise'
 
   function toggle() {
     isOpen = !isOpen;
@@ -92,6 +111,31 @@ export function createOverlay(client, options = {}) {
     el.textContent = text;
     messages.appendChild(el);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function showActions() {
+    actionsRow.classList.add('active');
+  }
+
+  function hideActions() {
+    actionsRow.classList.remove('active');
+    elapsedSpan.textContent = '';
+  }
+
+  function formatElapsed(seconds) {
+    if (seconds < 60) return seconds + 's';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m + 'm ' + s + 's';
+  }
+
+  function setInputMode(mode) {
+    inputMode = mode;
+    if (mode === 'revise') {
+      input.placeholder = 'revision...';
+    } else {
+      input.placeholder = 'feedback...';
+    }
   }
 
   document.addEventListener('keydown', (e) => {
@@ -109,14 +153,36 @@ export function createOverlay(client, options = {}) {
     if (e.key === 'Enter' && input.value.trim()) {
       const text = input.value.trim();
       addMessage(text, 'user');
-      if (options.onSend) options.onSend(text);
-      else client.send('feedback', { message: text });
+      if (inputMode === 'revise') {
+        if (options.onRevise) options.onRevise(text);
+        else client.send('revise', { message: text });
+        setInputMode('feedback');
+      } else {
+        if (options.onSend) options.onSend(text);
+        else client.send('feedback', { message: text });
+      }
       input.value = '';
     }
     e.stopPropagation();
   });
   input.addEventListener('keyup', (e) => e.stopPropagation());
   input.addEventListener('keypress', (e) => e.stopPropagation());
+
+  // Confirm button
+  confirmBtn.addEventListener('click', () => {
+    hideActions();
+    addMessage('Confirmed. Building...', 'ack');
+    if (options.onConfirm) options.onConfirm();
+    else client.send('confirm', {});
+  });
+
+  // Revise button
+  reviseBtn.addEventListener('click', () => {
+    hideActions();
+    setInputMode('revise');
+    input.focus();
+    addMessage('Type your revision below.', 'system');
+  });
 
   client.on('status', (status) => {
     dot.className = status;
@@ -136,6 +202,25 @@ export function createOverlay(client, options = {}) {
   client.on('response', (data) => {
     const status = data.status || 'response';
     addMessage(data.message, status);
+  });
+
+  client.on('plan', (data) => {
+    addMessage(data.message, 'plan');
+    showActions();
+  });
+
+  client.on('progress', (data) => {
+    addMessage(data.message, 'progress');
+  });
+
+  client.on('elapsed', (data) => {
+    elapsedSpan.textContent = formatElapsed(data.seconds);
+  });
+
+  client.on('done', (data) => {
+    hideActions();
+    addMessage(data.message, 'done');
+    setInputMode('feedback');
   });
 
   return { addMessage, toggle };

@@ -8,9 +8,10 @@ export function initHarness(phaserGame, options = {}) {
   const url = options.url || 'ws://localhost:3001';
   const client = createClient(url);
 
-  // sendFeedback is defined after the client.send patch below
   const overlay = createOverlay(client, {
     onSend: (text) => sendFeedback(text),
+    onConfirm: () => sendConfirm(),
+    onRevise: (text) => sendRevise(text),
   });
 
   let stateGetter = null;
@@ -61,6 +62,14 @@ export function initHarness(phaserGame, options = {}) {
 
   function sendFeedback(message) {
     client.send('feedback', { message });
+  }
+
+  function sendConfirm() {
+    client.send('confirm', {});
+  }
+
+  function sendRevise(message) {
+    client.send('revise', { message });
   }
 
   function on(event, callback) {

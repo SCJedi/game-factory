@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import { mkdirSync, appendFileSync, watchFile, readFileSync, existsSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawn } from 'child_process';
+import { createInterface } from 'readline';
 
 export function devHarness(options = {}) {
   const port = options.port || 3001;
@@ -9,8 +10,11 @@ export function devHarness(options = {}) {
   let wss = null;
   let projectRoot = '';
   let lastResponseSize = 0;
+  let handlerProc = null;
   let handlerBusy = false;
   let pendingFeedback = [];
+  let elapsedInterval = null;
+  let phaseStartTime = null;
 
   function broadcast(data) {
     if (!wss) return;
@@ -70,13 +74,139 @@ export function devHarness(options = {}) {
     });
   }
 
+  function startElapsedTimer() {
+    stopElapsedTimer();
+    phaseStartTime = Date.now();
+    elapsedInterval = setInterval(() => {
+      const seconds = Math.floor((Date.now() - phaseStartTime) / 1000);
+      broadcast({ type: 'elapsed', seconds });
+    }, 5000);
+    // Send the first one immediately at 0
+    broadcast({ type: 'elapsed', seconds: 0 });
+  }
+
+  function stopElapsedTimer() {
+    if (elapsedInterval) {
+      clearInterval(elapsedInterval);
+      elapsedInterval = null;
+    }
+    phaseStartTime = null;
+  }
+
+  function spawnHandler() {
+    if (!handler) return null;
+
+    const proc = spawn(handler.cmd, handler.args || [], {
+      cwd: projectRoot,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true,
+      env: { ...process.env, HARNESS_PROJECT: projectRoot },
+    });
+
+    const rl = createInterface({ input: proc.stdout });
+
+    rl.on('line', (line) => {
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch (_) {
+        // Non-JSON output from handler, treat as progress
+        broadcast({ type: 'response', message: line, status: 'response' });
+        return;
+      }
+
+      if (msg.type === 'plan') {
+        stopElapsedTimer();
+        broadcast({ type: 'plan', message: msg.message });
+
+      } else if (msg.type === 'progress') {
+        broadcast({ type: 'progress', message: msg.message });
+
+      } else if (msg.type === 'done') {
+        stopElapsedTimer();
+        handlerBusy = false;
+        respond(msg.message, 'done');
+        broadcast({ type: 'done', message: msg.message });
+        // Kill the handler process now that the cycle is complete
+        killHandler();
+        // Trigger controlled page reload
+        setTimeout(() => {
+          broadcast({ type: 'force-reload' });
+        }, 800);
+        // Process pending feedback if any
+        if (pendingFeedback.length > 0) {
+          const next = pendingFeedback.shift();
+          runHandler(next);
+        }
+
+      } else if (msg.type === 'error') {
+        stopElapsedTimer();
+        handlerBusy = false;
+        broadcast({ type: 'response', message: msg.message, status: 'error' });
+        killHandler();
+        if (pendingFeedback.length > 0) {
+          const next = pendingFeedback.shift();
+          runHandler(next);
+        }
+      }
+    });
+
+    proc.stderr.on('data', (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) {
+        broadcast({ type: 'progress', message: text });
+      }
+    });
+
+    proc.on('close', (code) => {
+      handlerProc = null;
+      if (handlerBusy) {
+        // Unexpected exit during a session
+        stopElapsedTimer();
+        handlerBusy = false;
+        broadcast({ type: 'response', message: `Handler exited unexpectedly (code ${code}).`, status: 'error' });
+        if (pendingFeedback.length > 0) {
+          const next = pendingFeedback.shift();
+          runHandler(next);
+        }
+      }
+    });
+
+    proc.on('error', (err) => {
+      handlerProc = null;
+      stopElapsedTimer();
+      handlerBusy = false;
+      broadcast({ type: 'response', message: `Handler failed to start: ${err.message}`, status: 'error' });
+    });
+
+    return proc;
+  }
+
+  function killHandler() {
+    if (handlerProc) {
+      try {
+        handlerProc.stdin.end();
+        handlerProc.kill();
+      } catch (_) {
+        // already dead
+      }
+      handlerProc = null;
+    }
+  }
+
+  function sendToHandler(obj) {
+    if (handlerProc && handlerProc.stdin.writable) {
+      handlerProc.stdin.write(JSON.stringify(obj) + '\n');
+    }
+  }
+
   function runHandler(entry) {
     if (!handler) return;
     if (handlerBusy) {
       pendingFeedback.push(entry);
       broadcast({
         type: 'response',
-        message: 'Queued - still working on the previous request.',
+        message: 'Queued -- still working on the previous request.',
         status: 'ack',
       });
       return;
@@ -85,66 +215,46 @@ export function devHarness(options = {}) {
     handlerBusy = true;
     broadcast({
       type: 'response',
-      message: 'Building...',
+      message: 'Thinking...',
       status: 'ack',
     });
+    startElapsedTimer();
 
-    const input = JSON.stringify({
+    // Spawn a fresh handler process for this feedback session
+    handlerProc = spawnHandler();
+    if (!handlerProc) {
+      handlerBusy = false;
+      stopElapsedTimer();
+      return;
+    }
+
+    sendToHandler({
+      type: 'feedback',
       message: entry.message,
       scene: entry.scene,
       state: entry.state,
       projectRoot,
     });
+  }
 
-    const proc = spawn(handler.cmd, handler.args || [], {
-      cwd: projectRoot,
-      shell: true,
-      env: { ...process.env, HARNESS_PROJECT: projectRoot },
-    });
+  function handleConfirm() {
+    if (!handlerProc || !handlerBusy) {
+      broadcast({ type: 'response', message: 'No active session to confirm.', status: 'error' });
+      return;
+    }
+    broadcast({ type: 'response', message: 'Building...', status: 'ack' });
+    startElapsedTimer();
+    sendToHandler({ type: 'confirm' });
+  }
 
-    proc.stdin.write(input);
-    proc.stdin.end();
-
-    let stdout = '';
-    proc.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on('data', (chunk) => {
-      const text = chunk.toString().trim();
-      if (text) {
-        broadcast({
-          type: 'response',
-          message: text,
-          status: 'response',
-        });
-      }
-    });
-
-    proc.on('close', (code) => {
-      handlerBusy = false;
-
-      if (code === 0) {
-        const summary = stdout.trim().split('\n').pop() || 'Changes applied.';
-        respond(summary, 'done');
-        // Trigger a single controlled page reload now that changes are done
-        broadcast({
-          type: 'response',
-          message: 'Reloading game with changes...',
-          status: 'ack',
-        });
-        setTimeout(() => {
-          broadcast({ type: 'force-reload' });
-        }, 800);
-      } else {
-        respond(`Handler exited with code ${code}.`, 'error');
-      }
-
-      if (pendingFeedback.length > 0) {
-        const next = pendingFeedback.shift();
-        runHandler(next);
-      }
-    });
+  function handleRevise(message) {
+    if (!handlerProc || !handlerBusy) {
+      broadcast({ type: 'response', message: 'No active session to revise.', status: 'error' });
+      return;
+    }
+    broadcast({ type: 'response', message: 'Revising plan...', status: 'ack' });
+    startElapsedTimer();
+    sendToHandler({ type: 'revise', message });
   }
 
   return {
@@ -179,6 +289,10 @@ export function devHarness(options = {}) {
                   status: 'ack',
                 });
               }
+            } else if (msg.type === 'confirm') {
+              handleConfirm();
+            } else if (msg.type === 'revise') {
+              handleRevise(msg.message || '');
             }
           } catch (_) {
             // ignore malformed messages
@@ -218,6 +332,8 @@ export function devHarness(options = {}) {
     },
 
     buildEnd() {
+      killHandler();
+      stopElapsedTimer();
       if (wss) {
         wss.close();
       }
